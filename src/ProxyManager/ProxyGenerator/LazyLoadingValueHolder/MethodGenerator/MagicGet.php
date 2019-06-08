@@ -27,7 +27,6 @@ use Zend\Code\Generator\PropertyGenerator;
 
 /**
  * Magic `__get` for lazy loading value holder objects
- *
  * @author Marco Pivetta <ocramius@gmail.com>
  * @license MIT
  */
@@ -41,27 +40,52 @@ class MagicGet extends MagicMethodGenerator
         PropertyGenerator $initializerProperty,
         PropertyGenerator $valueHolderProperty,
         PublicPropertiesMap $publicProperties
-    ) {
-        parent::__construct($originalClass, '__get', array(new ParameterGenerator('name')));
+    )
+    {
+        parent::__construct($originalClass, '__get', [new ParameterGenerator('name')]);
+
+        $hasParent = $originalClass->hasMethod('__get');
 
         $this->setDocblock(($originalClass->hasMethod('__get') ? "{@inheritDoc}\n" : '') . '@param string $name');
 
         $initializer = $initializerProperty->getName();
         $valueHolder = $valueHolderProperty->getName();
-        $callParent  = 'if (isset(self::$' . $publicProperties->getName() . "[\$name])) {\n"
+        $callParent = 'if (isset(self::$' . $publicProperties->getName() . "[\$name])) {\n"
             . '    return $this->' . $valueHolder . '->$name;'
             . "\n}\n\n";
 
-        $callParent .= PublicScopeSimulator::getPublicAccessSimulationCode(
-            PublicScopeSimulator::OPERATION_GET,
-            'name',
-            null,
-            $valueHolderProperty
-        );
+        if ($hasParent) {
+            $this->setInitializerBody(
+                $initializer,
+                $valueHolder,
+                $callParent . 'return $this->' . $valueHolder . '->__get($name);'
+            );
+            return;
+        }
 
+        $this->setInitializerBody(
+            $initializer,
+            $valueHolder,
+            $callParent . PublicScopeSimulator::getPublicAccessSimulationCode(
+                PublicScopeSimulator::OPERATION_GET,
+                'name',
+                null,
+                $valueHolderProperty
+            )
+        );
+    }
+
+    /**
+     * @param string $initializer
+     * @param string $valueHolder
+     * @param string $callParent
+     * @return void
+     */
+    private function setInitializerBody($initializer, $valueHolder, $callParent)
+    {
         $this->setBody(
             '$this->' . $initializer . ' && $this->' . $initializer
-            . '->__invoke($this->' . $valueHolder . ', $this, \'__get\', array(\'name\' => $name), $this->'
+            . '->__invoke($this->' . $valueHolder . ', $this, \'__get\', [\'name\' => $name], $this->'
             . $initializer . ');'
             . "\n\n" . $callParent
         );
